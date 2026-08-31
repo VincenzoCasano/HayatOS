@@ -1,0 +1,31 @@
+{
+  "name": "hayatos-website",
+  "version": "1.0.0",
+  "description": "HayatOS — the web version, sharing the same app.jsx/hayat.css as the Android app so both stay in sync with the same Firebase project (Auth + Firestore).",
+  "private": true,
+  "scripts": {
+    "build": "node build.mjs",
+    "build:watch": "node build.mjs --watch",
+    "dev": "npx http-server www -p 5173 -c-1"
+  },
+  "dependencies": {
+    "@capacitor-firebase/authentication": "^6.3.0",
+    "@capacitor-firebase/firestore": "^6.3.0",
+    "@capacitor/app": "^6.0.1",
+    "@capacitor/browser": "^6.0.3",
+    "@capacitor/core": "^6.1.2",
+    "@capacitor/filesystem": "^6.0.4",
+    "@capacitor/geolocation": "^6.0.2",
+    "@capacitor/haptics": "^6.0.1",
+    "@capacitor/local-notifications": "^6.1.0",
+    "@capacitor/status-bar": "^6.0.1",
+    "firebase": "^10.13.1",
+    "lucide-react": "^0.303.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "esbuild": "^0.23.1",
+    "http-server": "^14.1.1"
+  }
+}
