@@ -7,7 +7,7 @@ import {
   Pin, Minus, User, Camera, LogOut, Loader2, Cloud, CloudOff, Menu,
   Star, ArrowRight, Gamepad2, MoreVertical, Palette, Eye, EyeOff,
   Settings as SettingsIcon, Heart, Vibrate, Info, ShieldCheck,
-  Compass, Clock, MapPin, Disc, List, Code2, Dumbbell, Leaf, Calculator, Briefcase,
+  Compass, Clock, MapPin, Disc, List, Code2, Dumbbell, Leaf, Calculator, Briefcase, GripVertical,
 } from "lucide-react";
 import { createRoot } from "react-dom/client";
 import { createPortal } from "react-dom";
@@ -2967,6 +2967,76 @@ function Study({ state, api, push, timer, setTimer, onNav }) {
   const [showGoal, setShowGoal] = useState(false);
   const [goalDraft, setGoalDraft] = useState(state.study.dailyGoalMinutes);
 
+  // Long-press-to-edit + drag-to-reorder for the Subjects list, iOS-homescreen style:
+  // a normal tap opens the subject; holding it for ~500ms (without much finger movement)
+  // enters "edit mode" showing a minus badge on every row; a grip handle then lets you
+  // drag any row up/down to reorder, reusing the same array-splice pattern as habit reorder.
+  const [subjectEditMode, setSubjectEditMode] = useState(false);
+  const [subjectDragId, setSubjectDragId] = useState(null);
+  const [subjectDragY, setSubjectDragY] = useState(0);
+  const subjectPressTimer = useRef(null);
+  const subjectPressStart = useRef({ x: 0, y: 0 });
+  const subjectDragStartY = useRef(0);
+  const subjectDragStartIndex = useRef(0);
+  const subjectRowHeight = useRef(64);
+
+  const beginSubjectPress = (e, s) => {
+    if (subjectEditMode) return; // in edit mode, only the grip handle starts a drag
+    subjectPressStart.current = { x: e.clientX, y: e.clientY };
+    subjectPressTimer.current = setTimeout(() => { setSubjectEditMode(true); hapticWarn(); }, 500);
+  };
+  const movePressCancel = (e) => {
+    if (subjectPressTimer.current && (Math.abs(e.clientY - subjectPressStart.current.y) > 10 || Math.abs(e.clientX - subjectPressStart.current.x) > 10)) {
+      clearTimeout(subjectPressTimer.current);
+      subjectPressTimer.current = null;
+    }
+  };
+  const endSubjectPress = (s, cancelled) => {
+    if (subjectPressTimer.current) {
+      clearTimeout(subjectPressTimer.current);
+      subjectPressTimer.current = null;
+      if (!subjectEditMode && !cancelled) onNav && onNav("subjectDetail", { param: s.id });
+    }
+  };
+  const startSubjectDrag = (e, id, index) => {
+    e.stopPropagation();
+    e.preventDefault();
+    const rowEl = e.currentTarget.closest(".subject-row");
+    if (rowEl) subjectRowHeight.current = rowEl.getBoundingClientRect().height + 8;
+    subjectDragStartY.current = e.clientY;
+    subjectDragStartIndex.current = index;
+    setSubjectDragY(0);
+    setSubjectDragId(id);
+    hapticTap();
+  };
+  useEffect(() => {
+    if (!subjectDragId) return;
+    const onMove = (e) => {
+      const delta = e.clientY - subjectDragStartY.current;
+      setSubjectDragY(delta);
+      const newIndex = Math.max(0, Math.min(state.study.subjects.length - 1, subjectDragStartIndex.current + Math.round(delta / subjectRowHeight.current)));
+      if (newIndex !== subjectDragStartIndex.current) {
+        const arr = [...state.study.subjects];
+        const [moved] = arr.splice(subjectDragStartIndex.current, 1);
+        arr.splice(newIndex, 0, moved);
+        api.reorderSubjects(arr);
+        subjectDragStartIndex.current = newIndex;
+        subjectDragStartY.current = e.clientY;
+        setSubjectDragY(0);
+        hapticTap();
+      }
+    };
+    const onUp = () => { setSubjectDragId(null); setSubjectDragY(0); };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+    };
+  }, [subjectDragId, state.study.subjects]);
+
   useEffect(() => {
     if (!timer.running) return;
     const iv = setInterval(() => forceTick((x) => x + 1), 1000);
@@ -3050,22 +3120,46 @@ function Study({ state, api, push, timer, setTimer, onNav }) {
       <Card style={{ marginBottom: 16 }}>
         <div className="row-between" style={{ marginBottom: 10 }}>
           <div className="section-label" style={{ margin: 0 }}>Subjects</div>
+          {subjectEditMode && <button className="t-xs bold" style={{ color: "var(--accent)", background: "none", border: "none" }} onClick={() => setSubjectEditMode(false)}>Done</button>}
         </div>
+        {subjectEditMode && <div className="t-xs t-faint" style={{ marginBottom: 10, marginTop: -4 }}>Drag the handle to reorder · tap the minus to delete</div>}
         <div className="col g-2" style={{ marginBottom: 12 }}>
           {state.study.subjects.map((s, i) => {
             const meta = subjectMeta(s.name, i);
             const Icon = meta.icon;
             const tMin = subjectTodayMinutes(s, state.study.sessions);
             const prog = subjectOverallProgress(s);
+            const dragging = subjectDragId === s.id;
             return (
-              <button key={s.id} className="prayer-row" style={{ height: "auto" }} onClick={() => onNav && onNav("subjectDetail", { param: s.id })}>
+              <div
+                key={s.id}
+                className={`prayer-row subject-row ${subjectEditMode ? "subject-row-editing" : ""} ${dragging ? "subject-row-dragging" : ""}`}
+                style={{ height: "auto", transform: dragging ? `translateY(${subjectDragY}px) scale(1.03)` : undefined, zIndex: dragging ? 5 : 1 }}
+                onPointerDown={(e) => beginSubjectPress(e, s)}
+                onPointerMove={movePressCancel}
+                onPointerUp={() => endSubjectPress(s)}
+                onPointerCancel={() => endSubjectPress(s, true)}
+              >
+                {subjectEditMode && (
+                  <button
+                    className="subject-delete-badge"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (!confirm(`Delete "${s.name}"? This removes its chapters, notes, and resources — logged study time stays in your stats.`)) return;
+                      api.removeSubject(s.id);
+                      push("Subject deleted", "success");
+                    }}
+                  ><Minus size={12} strokeWidth={3} /></button>
+                )}
                 <span className="prayer-row-icon" style={{ background: `color-mix(in srgb, ${meta.color} 22%, transparent)`, color: meta.color }}><Icon size={16} /></span>
                 <span className="col g-1" style={{ flex: 1, minWidth: 0, alignItems: "flex-start" }}>
                   <span className="bold t-sm">{s.name}</span>
                   <span className="t-xs t-sub">Today: {fmtHM(tMin)} · {prog}%</span>
                 </span>
-                <ChevronRight size={16} className="t-faint" />
-              </button>
+                {subjectEditMode
+                  ? <span className="subject-drag-handle" onPointerDown={(e) => startSubjectDrag(e, s.id, i)}><GripVertical size={16} /></span>
+                  : <ChevronRight size={16} className="t-faint" />}
+              </div>
             );
           })}
         </div>
@@ -5553,6 +5647,7 @@ export default function App() {
 
     addSubject: (nameOrObj) => setState((s) => { const patch = typeof nameOrObj === "string" ? { name: nameOrObj } : nameOrObj; return { ...s, study: { ...s.study, subjects: [...s.study.subjects, { id: uid(), name: "", chapters: [], resources: [], sketches: [], notes: "", ...patch }] } }; }),
     removeSubject: (id) => setState((s) => ({ ...s, study: { ...s.study, subjects: s.study.subjects.filter((x) => x.id !== id) } })),
+    reorderSubjects: (newSubjectsArray) => setState((s) => ({ ...s, study: { ...s.study, subjects: newSubjectsArray } })),
     updateSubject: (id, patch) => setState((s) => ({ ...s, study: { ...s.study, subjects: s.study.subjects.map((x) => x.id === id ? { ...x, ...patch } : x) } })),
     setSubjectNotes: (id, notes) => setState((s) => ({ ...s, study: { ...s.study, subjects: s.study.subjects.map((x) => x.id === id ? { ...x, notes } : x) } })),
     addChapter: (subjectId, title) => setState((s) => ({ ...s, study: { ...s.study, subjects: s.study.subjects.map((x) => x.id === subjectId ? { ...x, chapters: [...(x.chapters || []), { id: uid(), title, status: "notStarted", progress: 0, notes: "" }] } : x) } })),

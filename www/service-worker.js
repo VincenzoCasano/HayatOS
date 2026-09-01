@@ -1,4 +1,4 @@
-const CACHE = "hayatos-cache-v14";
+const CACHE = "hayatos-cache-v16";
 
 // Everything the app needs to boot completely offline. As of v8 this is
 // ENTIRELY same-origin/local -- app.jsx (React/Firebase/Capacitor/etc.) is
